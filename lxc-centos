@@ -343,9 +343,7 @@ lxc_network_type=veth
 lxc_network_ipv4_eth0=
 lxc_network_ipv4_eth1=
 
-# is this centos?
-[ -f /etc/centos-release ] && is_centos=true
-
+# get options
 options=$(getopt -o hp:A:B:n:u:f:s:cR: -l help,path:,arch:,arch_base:,name:,utsname:,first-ipv4:,second-ipv4:,clean,release: -- "$@")
 if [ $? -ne 0 ]; then
     usage $(basename $0)
@@ -371,6 +369,8 @@ do
     esac
 done
 
+# check options and global vars
+[ -f /etc/centos-release ] && is_centos=true
 if [ -z "$release" ]; then
     if [ "$is_centos" ]; then
         release=$(cat /etc/centos-release |awk '/^CentOS/ {print $3}')
@@ -384,13 +384,11 @@ arch=
 if [ -z "$arch" ]; then
     arch=$(arch)
     echo "arch is set from arch command[$arch]"
-    
 fi
 arch_base=
 if [ -z "$arch_base" ]; then
     arch_base=x86_64
     echo "arch_base is default[x86_64]"
-    
 fi
 cache_base=/var/cache/lxc/centos/$arch
 rootfs_path=$path/$name/rootfs
@@ -425,6 +423,7 @@ if [ -f $config_path/config ]; then
     exit 1
 fi
 
+# starting make container
 install_centos
 if [ $? -ne 0 ]; then
     echo "failed to install centos"
