@@ -1,0 +1,452 @@
+#!/bin/bash
+
+#
+# template script for generating centos container for LXC
+#
+
+#
+# lxc: linux Container library
+
+# Authors:
+# Daniel Lezcano <daniel.lezcano@free.fr>
+# Ramez Hanna <rhanna@informatiq.org>
+
+# This library is free software; you can redistribute it and/or
+# modify it under the terms of the GNU Lesser General Public
+# License as published by the Free Software Foundation; either
+# version 2.1 of the License, or (at your option) any later version.
+
+# This library is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# Lesser General Public License for more details.
+
+# You should have received a copy of the GNU Lesser General Public
+# License along with this library; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
+
+
+# ---------- sub routines  ----------
+configure_centos()
+{
+
+    # disable selinux in centos
+    mkdir -p $rootfs_path/selinux
+    echo 0 > $rootfs_path/selinux/enforce
+
+   # configure the network using the dhcp
+#    cat <<EOF > ${rootfs_path}/etc/sysconfig/network-scripts/ifcfg-eth0
+#DEVICE=eth0
+#BOOTPROTO=dhcp
+#ONBOOT=yes
+#NM_CONTROLLED=no
+#TYPE=Ethernet
+#MTU=${MTU}
+#EOF
+
+    # set the hostname
+    cat <<EOF > ${rootfs_path}/etc/sysconfig/network
+NETWORKING=yes
+HOSTNAME=$utsname
+EOF
+
+    # set minimal hosts
+    cat <<EOF > ${rootfs_path}/etc/hosts
+127.0.0.1 localhost $name
+EOF
+
+    # set minimal fstab
+    cat <<EOF > ${rootfs_path}/etc/fstab
+/dev/root               /                       rootfs   defaults        0 0
+none                    /dev/shm                tmpfs    nosuid,nodev    0 0
+EOF
+
+    # set lxc-sysinit.conf
+    # this file effect that not display init output and display login console when
+    # running lxc-start
+#    cat <<EOF > ${rootfs_path}/etc/init/lxc-sysinit.conf
+#start on startup
+#env container
+#
+#pre-start script
+#    if [ "x$container" != "xlxc" -a "x$container" != "xlibvirt" ]; then
+#        stop;
+#    fi
+#    telinit 3
+#    initctl start tty TTY=console
+#    exit 0;
+#end script
+#EOF
+
+    sed -i 's|.sbin.start_udev||' ${rootfs_path}/etc/rc.sysinit
+    sed -i 's|.sbin.start_udev||' ${rootfs_path}/etc/rc.d/rc.sysinit
+    cat <<EOF >> ${rootfs_path}/etc/rc.d/rc.sysinit
+exit 0
+EOF
+    cat <<EOF >> ${rootfs_path}/etc/rc.local
+rm -f /dev/ptmx
+ln -s /dev/pts/ptmx /dev/ptmx
+EOF
+    chroot ${rootfs_path} chkconfig udev-post off
+    chroot ${rootfs_path} chkconfig network on
+    chroot ${rootfs_path} chkconfig sshd on
+    chroot ${rootfs_path} chkconfig ntpd on
+    chroot ${rootfs_path} chkconfig postfix off
+
+    dev_path="${rootfs_path}/dev"
+    rm -rf $dev_path
+    mkdir -p $dev_path
+    mknod -m 666 ${dev_path}/null c 1 3
+    mknod -m 666 ${dev_path}/zero c 1 5
+    mknod -m 666 ${dev_path}/random c 1 8
+    mknod -m 666 ${dev_path}/urandom c 1 9
+    mkdir -m 755 ${dev_path}/pts
+    mkdir -m 1777 ${dev_path}/shm
+    mknod -m 666 ${dev_path}/tty c 5 0
+    mknod -m 666 ${dev_path}/tty0 c 4 0
+    mknod -m 666 ${dev_path}/tty1 c 4 1
+    mknod -m 666 ${dev_path}/tty2 c 4 2
+    mknod -m 666 ${dev_path}/tty3 c 4 3
+    mknod -m 666 ${dev_path}/tty4 c 4 4
+    mknod -m 600 ${dev_path}/console c 5 1
+    mknod -m 666 ${dev_path}/full c 1 7
+    mknod -m 600 ${dev_path}/initctl p
+
+    echo "setting root passwd to $root_password"
+    echo "root:$root_password" | chroot $rootfs_path chpasswd
+
+    return 0
+}
+
+download_centos()
+{
+
+    # check the mini centos was not already downloaded
+    INSTALL_ROOT=$cache/partial
+    mkdir -p $INSTALL_ROOT
+    if [ $? -ne 0 ]; then
+    echo "Failed to create '$INSTALL_ROOT' directory"
+    return 1
+    fi
+
+    # download a mini centos into a cache
+    echo "Downloading centos minimal ..."
+    YUM="yum --installroot $INSTALL_ROOT -y --nogpgcheck"
+    PKG_LIST="yum initscripts passwd rsyslog vim-minimal dhclient chkconfig rootfiles policycoreutils"
+    RELEASE_URL="http://ftp.jaist.ac.jp/pub/Linux/CentOS/$release/os/$arch_base/Packages/centos-release-6-3.el6.centos.9.$arch.rpm"
+    curl $RELEASE_URL > $INSTALL_ROOT/centos-release-$release.noarch.rpm
+
+    mkdir -p $INSTALL_ROOT/var/lib/rpm
+    rpm --root $INSTALL_ROOT  --initdb
+    rpm --root $INSTALL_ROOT -ivh $INSTALL_ROOT/centos-release-$release.noarch.rpm
+    $YUM install $PKG_LIST
+    $YUM install time perl-core mlocate tree strace sudo bind-utils man ntp vixie-cron which wget screen openssh-server openssh-clients subversion git
+    $YUM groupinstall "Development Tools"
+
+    if [ $? -ne 0 ]; then
+    echo "Failed to download the rootfs, aborting."
+    return 1
+    fi
+
+    mv "$INSTALL_ROOT" "$cache/rootfs"
+    echo "Download complete."
+
+    return 0
+}
+
+copy_centos()
+{
+
+    # make a local copy of the minicentos
+    echo -n "Copying rootfs to $rootfs_path ..."
+    #cp -a $cache/rootfs-$arch $rootfs_path || return 1
+    # i prefer rsync (no reason really)
+    mkdir -p $rootfs_path
+    rsync -a $cache/rootfs/ $rootfs_path/
+    return 0
+}
+
+update_centos()
+{
+    #chroot $cache/rootfs yum -y update
+    yum --installroot $cache/rootfs -y --nogpgcheck update
+}
+
+install_centos()
+{
+    mkdir -p /var/lock/subsys/
+    (
+    flock -n -x 200
+    if [ $? -ne 0 ]; then
+        echo "Cache repository is busy."
+        return 1
+    fi
+
+    echo "Checking cache download in $cache/rootfs ... "
+    if [ ! -e "$cache/rootfs" ]; then
+        download_centos
+        if [ $? -ne 0 ]; then
+        echo "Failed to download 'centos base'"
+        return 1
+        fi
+    else
+        echo "Cache found. Updating..."
+        update_centos
+        if [ $? -ne 0 ]; then
+        echo "Failed to update 'centos base', continuing with last known good cache"
+            else
+                echo "Update finished"
+        fi
+    fi
+
+    echo "Copy $cache/rootfs to $rootfs_path ... "
+    copy_centos
+    if [ $? -ne 0 ]; then
+        echo "Failed to copy rootfs"
+        return 1
+    fi
+
+    return 0
+
+    ) 200>/var/lock/subsys/lxc
+
+    return $?
+}
+
+copy_configuration()
+{
+
+    mkdir -p $config_path
+    cat <<EOF >> $config_path/config
+lxc.utsname = $utsname
+lxc.tty = 4
+lxc.pts = 1024
+lxc.rootfs = $rootfs_path
+lxc.mount  = $config_path/fstab
+#cgroups
+lxc.cgroup.devices.deny = a
+# /dev/null and zero
+lxc.cgroup.devices.allow = c 1:3 rwm
+lxc.cgroup.devices.allow = c 1:5 rwm
+# consoles
+lxc.cgroup.devices.allow = c 5:1 rwm
+lxc.cgroup.devices.allow = c 5:0 rwm
+lxc.cgroup.devices.allow = c 4:0 rwm
+lxc.cgroup.devices.allow = c 4:1 rwm
+# /dev/{,u}random
+lxc.cgroup.devices.allow = c 1:9 rwm
+lxc.cgroup.devices.allow = c 1:8 rwm
+lxc.cgroup.devices.allow = c 136:* rwm
+lxc.cgroup.devices.allow = c 5:2 rwm
+# rtc
+lxc.cgroup.devices.allow = c 254:0 rwm
+EOF
+    if [ ! -z "$lxc_network_ipv4_eth0" ]; then
+        cat <<EOF >> $config_path/config
+#networking
+# for eth0
+lxc.network.type = $lxc_network_type
+lxc.network.flags = up
+lxc.network.link = br0
+lxc.network.name = eth0
+lxc.network.mtu = 1500
+lxc.network.ipv4 = $lxc_network_ipv4_eth0
+EOF
+    fi
+
+    if [ ! -z "$lxc_network_ipv4_eth1" ]; then
+        cat <<EOF >> $config_path/config
+# for eth1
+lxc.network.type = $lxc_network_type
+lxc.network.flags = up
+lxc.network.link = br1
+lxc.network.name = eth1
+lxc.network.mtu = 1500
+lxc.network.ipv4 = $lxc_network_ipv4_eth1
+EOF
+    fi
+
+    # for lxc.mount
+    cat <<EOF > $config_path/fstab
+proc            ${rootfs_path}/proc         proc    nodev,noexec,nosuid 0 0
+sysfs           ${rootfs_path}/sys          sysfs defaults  0 0
+EOF
+    if [ $? -ne 0 ]; then
+    echo "Failed to add configuration"
+    return 1
+    fi
+
+    return 0
+}
+
+clean()
+{
+
+    if [ ! -e $cache ]; then
+    exit 0
+    fi
+
+    # lock, so we won't purge while someone is creating a repository
+    (
+    flock -n -x 200
+    if [ $? != 0 ]; then
+        echo "Cache repository is busy."
+        exit 1
+    fi
+
+    echo -n "Purging the download cache for CentOS-${release}..."
+    rm --preserve-root --one-file-system -rf $cache && echo "Done." || exit 1
+    exit 0
+
+    ) 200>/var/lock/subsys/lxc
+}
+
+usage()
+{
+    cat <<EOF
+-------------------------
+usage:
+    $1 -n|--name=<container_name>
+        [-p|--path=<path>] [-c|--clean] [-R|--release=<CentOS_release>] [-A|--arch=<arch of the container>]
+        [-u|--utsname] [-f|--first-ipv4=<ip/netmask>] [-s|--second-ipv4=<ip/netmask>]
+        [-h|--help]
+example:
+    $1 --name=lxc1 --utsname=lxc1.cent.example.com --path=/lxc
+       --first-ipv4=192.168.100.11/24 --second-ipv4=192.168.200.11/24
+-------------------------
+Mandatory args:
+  -n,--name         container name, used to as an identifier for that container from now on
+  -f,--first-ipv4   Primary IP address/netmask description that used lxc.network.ipv4 for container's eth0
+-------------------------
+Optional args:
+  -p,--path         path to where the container rootfs will be created, defaults to /var/lib/lxc.
+                    The container config will go under /var/lib/lxc in and case
+  -u,--utsname      hostname, that used HOSTNAME in /etc/sysconfig/network and lxc.utsname
+  -s,--second-ipv4  Secondary IP address/netmask description that used lxc.network.ipv4 for container's eth1
+  -c,--clean        clean the cache
+  -R,--release      CentOS release for the new container.
+                    If the host is CentOS, then it will default to the host's release.
+  -A,--arch         Define what arch the container will be [i686,x86_64]
+                    default is getting from arch command
+  -B,--arch_base    Define arch for centos repository path [i386,x86_64]
+  -h,--help         print this help
+-------------------------
+EOF
+    return 0
+}
+
+
+# ------ main script start ------
+default_path=/var/lib/lxc
+root_password=rooter
+lxc_network_type=veth
+lxc_network_ipv4_eth0=
+lxc_network_ipv4_eth1=
+
+# is this centos?
+[ -f /etc/centos-release ] && is_centos=true
+
+options=$(getopt -o hp:A:B:n:u:f:s:cR: -l help,path:,arch:,arch_base:,name:,utsname:,first-ipv4:,second-ipv4:,clean,release: -- "$@")
+if [ $? -ne 0 ]; then
+    usage $(basename $0)
+    exit 1
+fi
+eval set -- "$options"
+
+while true
+do
+    case "$1" in
+    -h|--help)      usage $0 && exit 0;;
+    -p|--path)      path=$2; shift 2;;
+    -A|--arch)      arch=$2; shift 2;;
+    -B|--arch_base)      arch_base=$2; shift 2;;
+    -n|--name)      name=$2; shift 2;;
+    -u|--utsname)   utsname=$2; shift 2;;
+    -f|--first-ipv4)      lxc_network_ipv4_eth0=$2; shift 2;;
+    -s|--second-ipv4)     lxc_network_ipv4_eth1=$2; shift 2;;
+    -c|--clean)     clean=$2; shift 2;;
+    -R|--release)   release=$2; shift 2;;
+    --)             shift 1; break ;;
+        *)              break ;;
+    esac
+done
+
+if [ -z "$release" ]; then
+    if [ "$is_centos" ]; then
+        release=$(cat /etc/centos-release |awk '/^CentOS/ {print $3}')
+    else
+        echo "This is not a centos host and release missing, use -R|--release to specify release"
+        exit 1
+    fi
+fi
+
+arch=
+if [ -z "$arch" ]; then
+    arch=$(arch)
+    echo "arch is set from arch command[$arch]"
+    
+fi
+arch_base=
+if [ -z "$arch_base" ]; then
+    arch_base=x86_64
+    echo "arch_base is default[x86_64]"
+    
+fi
+cache_base=/var/cache/lxc/centos/$arch
+rootfs_path=$path/$name/rootfs
+config_path=$path/$name
+cache=$cache_base/$release
+
+if [ ! -z "$clean" -a -z "$path" ]; then
+    clean || exit 1
+    exit 0
+fi
+
+if [ -z "$lxc_network_ipv4_eth0" ]; then
+    echo "Primary IP address is missing. use -f|--first-ipv4 to specify ip setting like 192.168.100.11/24"
+    exit 1
+fi
+
+type yum >/dev/null 2>&1
+if [ $? -ne 0 ]; then
+    echo "'yum' command is missing"
+    exit 1
+fi
+
+echo "path: $path"
+
+if [ "$(id -u)" != "0" ]; then
+    echo "This script should be run as 'root'"
+    exit 1
+fi
+
+if [ -f $config_path/config ]; then
+    echo "A container with that name exists, chose a different name"
+    exit 1
+fi
+
+install_centos
+if [ $? -ne 0 ]; then
+    echo "failed to install centos"
+    exit 1
+fi
+
+configure_centos
+if [ $? -ne 0 ]; then
+    echo "failed to configure centos for a container"
+    exit 1
+fi
+
+copy_configuration
+if [ $? -ne 0 ]; then
+    echo "failed write configuration file"
+    exit 1
+fi
+
+if [ ! -z $clean ]; then
+    clean || exit 1
+    exit 0
+fi
+echo "container rootfs and config created"
+echo "container is configured for lxc.network.type=veth and lxc.network.link=br0 ( This is edited. If you have libvirt runnig, should be link=virbr0 )"
+
