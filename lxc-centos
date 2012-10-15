@@ -58,6 +58,7 @@ EOF
     # set minimal fstab
     cat <<EOF > ${rootfs_path}/etc/fstab
 /dev/root               /                       rootfs   defaults        0 0
+devpts                  /dev/pts                devpts  gid=5,mode=620,newinstance,ptmxmode=0666  0 0
 none                    /dev/shm                tmpfs    nosuid,nodev    0 0
 EOF
 
@@ -176,37 +177,37 @@ install_centos()
 {
     mkdir -p /var/lock/subsys/
     (
-    flock -n -x 200
-    if [ $? -ne 0 ]; then
-        echo "Cache repository is busy."
-        return 1
-    fi
-
-    echo "Checking cache download in $cache/rootfs ... "
-    if [ ! -e "$cache/rootfs" ]; then
-        download_centos
+        flock -n -x 200
         if [ $? -ne 0 ]; then
-        echo "Failed to download 'centos base'"
-        return 1
+            echo "Cache repository is busy."
+            return 1
         fi
-    else
-        echo "Cache found. Updating..."
-        update_centos
+
+        echo "Checking cache download in $cache/rootfs ... "
+        if [ ! -e "$cache/rootfs" ]; then
+            download_centos
+            if [ $? -ne 0 ]; then
+            echo "Failed to download 'centos base'"
+            return 1
+            fi
+        else
+            echo "Cache found. Updating..."
+            update_centos
+            if [ $? -ne 0 ]; then
+            echo "Failed to update 'centos base', continuing with last known good cache"
+                else
+                    echo "Update finished"
+            fi
+        fi
+
+        echo "Copy $cache/rootfs to $rootfs_path ... "
+        copy_centos
         if [ $? -ne 0 ]; then
-        echo "Failed to update 'centos base', continuing with last known good cache"
-            else
-                echo "Update finished"
+            echo "Failed to copy rootfs"
+            return 1
         fi
-    fi
 
-    echo "Copy $cache/rootfs to $rootfs_path ... "
-    copy_centos
-    if [ $? -ne 0 ]; then
-        echo "Failed to copy rootfs"
-        return 1
-    fi
-
-    return 0
+        return 0
 
     ) 200>/var/lock/subsys/lxc
 
@@ -288,15 +289,15 @@ clean()
 
     # lock, so we won't purge while someone is creating a repository
     (
-    flock -n -x 200
-    if [ $? != 0 ]; then
-        echo "Cache repository is busy."
-        exit 1
-    fi
+        flock -n -x 200
+        if [ $? != 0 ]; then
+            echo "Cache repository is busy."
+            exit 1
+        fi
 
-    echo -n "Purging the download cache for CentOS-${release}..."
-    rm --preserve-root --one-file-system -rf $cache && echo "Done." || exit 1
-    exit 0
+        echo -n "Purging the download cache for CentOS-${release}..."
+        rm --preserve-root --one-file-system -rf $cache && echo "Done." || exit 1
+        exit 0
 
     ) 200>/var/lock/subsys/lxc
 }
@@ -328,7 +329,7 @@ Optional args:
                     If the host is CentOS, then it will default to the host's release.
   -A,--arch         Define what arch the container will be [i686,x86_64]
                     default is getting from arch command
-  -B,--arch_base    Define arch for centos repository path [i386,x86_64]
+  -B,--arch-base    Define arch for centos repository path [i386,x86_64]
   -h,--help         print this help
 -------------------------
 EOF
@@ -342,9 +343,10 @@ root_password=rooter
 lxc_network_type=veth
 lxc_network_ipv4_eth0=
 lxc_network_ipv4_eth1=
+arch_base=x86_64
 
 # get options
-options=$(getopt -o hp:A:B:n:u:f:s:cR: -l help,path:,arch:,arch_base:,name:,utsname:,first-ipv4:,second-ipv4:,clean,release: -- "$@")
+options=$(getopt -o hp:A:B:n:u:f:s:cR: -l help,path:,arch:,arch-base:,name:,utsname:,first-ipv4:,second-ipv4:,clean,release: -- "$@")
 if [ $? -ne 0 ]; then
     usage $(basename $0)
     exit 1
@@ -354,17 +356,17 @@ eval set -- "$options"
 while true
 do
     case "$1" in
-    -h|--help)      usage $0 && exit 0;;
-    -p|--path)      path=$2; shift 2;;
-    -A|--arch)      arch=$2; shift 2;;
-    -B|--arch_base)      arch_base=$2; shift 2;;
-    -n|--name)      name=$2; shift 2;;
-    -u|--utsname)   utsname=$2; shift 2;;
-    -f|--first-ipv4)      lxc_network_ipv4_eth0=$2; shift 2;;
-    -s|--second-ipv4)     lxc_network_ipv4_eth1=$2; shift 2;;
-    -c|--clean)     clean=$2; shift 2;;
-    -R|--release)   release=$2; shift 2;;
-    --)             shift 1; break ;;
+        -h|--help)      usage $0 && exit 0;;
+        -p|--path)      path=$2; shift 2;;
+        -A|--arch)      arch=$2; shift 2;;
+        -B|--arch-base)      arch_base=$2; shift 2;;
+        -n|--name)      name=$2; shift 2;;
+        -u|--utsname)   utsname=$2; shift 2;;
+        -f|--first-ipv4)      lxc_network_ipv4_eth0=$2; shift 2;;
+        -s|--second-ipv4)     lxc_network_ipv4_eth1=$2; shift 2;;
+        -c|--clean)     clean=$2; shift 2;;
+        -R|--release)   release=$2; shift 2;;
+        --)             shift 1; break ;;
         *)              break ;;
     esac
 done
@@ -380,16 +382,14 @@ if [ -z "$release" ]; then
     fi
 fi
 
+# arch
 arch=
 if [ -z "$arch" ]; then
     arch=$(arch)
     echo "arch is set from arch command[$arch]"
 fi
-arch_base=
-if [ -z "$arch_base" ]; then
-    arch_base=x86_64
-    echo "arch_base is default[x86_64]"
-fi
+echo "arch_base is [$arch_base]"
+
 cache_base=/var/cache/lxc/centos/$arch
 rootfs_path=$path/$name/rootfs
 config_path=$path/$name
