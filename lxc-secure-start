@@ -1,5 +1,12 @@
 #!/bin/sh
 
+# This script is created to running lxc-start with secure.
+#
+# When running lxc-start with no daemonize and invalid -f option(like any directry path),
+# script is starting and no output in console.
+# Then I try Ctrl-d to escape terminal, But this effect reboot Host!!!
+# for prevent invalid starting, I create this script.
+
 # get options
 options=$(getopt -o df:c:s:hqo:l:n:t -l daemon,rcfile:,console:,define:,help,quiet,logfile:,logpriority:,name:,dry-run -- "$@")
 eval set -- "$options"
