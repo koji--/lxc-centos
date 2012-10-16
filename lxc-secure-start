@@ -1,0 +1,78 @@
+#!/bin/sh
+
+# get options
+options=$(getopt -o df:c:s:hqo:l:n:t -l daemon,rcfile:,console:,define:,help,quiet,logfile:,logpriority:,name:,dry-run -- "$@")
+eval set -- "$options"
+
+while true
+do
+    case "$1" in
+        -d|--daemon)      daemon=$1; shift 1;;
+        -f|--rcfile)      rcfile=$2; shift 2;;
+        -c|--console)      console=$2; shift 2;;
+        -s|--define)      define=$2; shift 2;;
+        -h|--help)      help=$1; shift 1;;
+        -q|--quiet)   quiet=$1; shift 2;;
+        -o|--logfile)      logfile=$2; shift 2;;
+        -l|--logpriority)     logpriority=$2; shift 2;;
+        -n|--name)     name=$2; shift 2;;
+        -t|--dry-run)     dry_run=1; shift 2;;
+        *)              break ;;
+    esac
+done
+
+safe_opt=
+# daemon
+if [ "$daemon" = "-d" ]; then
+    echo $daemon
+    safe_opt="$daemon"
+fi
+# rcfile
+if [ -n "$rcfile" -a -e "$rcfile" -a -f "$rcfile" ]; then
+    echo $rcfile
+    safe_opt="$safe_opt -f $rcfile"
+else
+    echo "rcfile is invalid"
+    exit
+fi
+# console
+if [ -n "$console" -a -e "$console" -a -f "$console" ]; then
+    echo $console
+    safe_opt="$safe_opt -c $console"
+fi
+# define
+if [ -n "$define" ]; then
+    echo $define
+    safe_opt="$safe_opt -s $define"
+fi
+# help
+if [ "$help" = "-h" ]; then
+    echo $help
+    safe_opt="$help"
+fi
+# quiet
+if [ "$quiet" = "-q" ]; then
+    echo $quiet
+    safe_opt="$quiet"
+fi
+# logfile
+if [ -n "$logfile" ]; then
+    echo $logfile
+    safe_opt="$safe_opt -o $logfile"
+fi
+# logpriority
+if [ -n "$logpriority" ]; then
+    echo $logpriority
+    safe_opt="$safe_opt -l $logpriority"
+fi
+# name
+if [ -n "$name" ]; then
+    echo $name
+    safe_opt="$safe_opt -n $name"
+fi
+
+echo "safe_opt:$safe_opt"
+if [ "$dry_run" != 1 ]; then
+    echo "********** call lxc-start **********"
+    `which lxc-start` $safe_opt
+fi
