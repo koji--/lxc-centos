@@ -170,6 +170,7 @@ copy_centos()
 update_centos()
 {
     #yum --installroot $cache/rootfs -y --nogpgcheck update
+    return 0
 }
 
 install_centos()
