@@ -313,7 +313,7 @@ usage:
         [-h|--help]
 example:
     $1 --name=lxc1 --utsname=lxc1.cent.example.com --path=/lxc
-       --first-ipv4=192.168.100.11/24 --second-ipv4=192.168.200.11/24
+       --first-ipv4=192.168.100.11/24 --second-ipv4=192.168.200.11/24 --arch=i686 --arch-base=i386
 -------------------------
 Mandatory args:
   -n,--name         container name, used to as an identifier for that container from now on
