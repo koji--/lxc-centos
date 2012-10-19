@@ -62,6 +62,19 @@ devpts                  /dev/pts                devpts  gid=5,mode=620,newinstan
 none                    /dev/shm                tmpfs    nosuid,nodev    0 0
 EOF
 
+    # set sysctl.conf for disable ipv6
+    cat <<EOF >> ${rootfs_path}/etc/sysctl.conf
+
+# disable ipv6 for LXC container.
+# http://www.techienote.com/2012/08/how-to-disable-ipv6-on-rhel-centos.html
+#
+# Because of this is below.
+# When shutdown/reboot in LXC container,
+# appear call trace(__ipv6_dev_mc_dec) in Host /var/log/messages
+net.ipv6.conf.all.disable_ipv6 = 1
+net.ipv6.conf.default.disable_ipv6 = 1
+EOF
+
     # set lxc-sysinit.conf
     # this file effect that not display init output and display login console when
     # running lxc-start
