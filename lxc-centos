@@ -71,8 +71,8 @@ EOF
 # Because of this is below.
 # When shutdown/reboot in LXC container,
 # appear call trace(__ipv6_dev_mc_dec) in Host /var/log/messages
-net.ipv6.conf.all.disable_ipv6 = 1
-net.ipv6.conf.default.disable_ipv6 = 1
+#net.ipv6.conf.all.disable_ipv6 = 1
+#net.ipv6.conf.default.disable_ipv6 = 1
 EOF
 
     # set lxc-sysinit.conf
