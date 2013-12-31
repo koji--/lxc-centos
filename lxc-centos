@@ -147,7 +147,7 @@ download_centos()
     echo "Downloading centos minimal ..."
     YUM="yum --installroot $INSTALL_ROOT -y --nogpgcheck"
     PKG_LIST="yum initscripts passwd rsyslog vim-minimal dhclient chkconfig rootfiles policycoreutils"
-    RELEASE_URL="http://ftp.jaist.ac.jp/pub/Linux/CentOS/$release/os/$arch_base/Packages/centos-release-6-4.el6.centos.10.$arch.rpm"
+    RELEASE_URL="http://ftp.jaist.ac.jp/pub/Linux/CentOS/$release/os/$arch_base/Packages/centos-release-6-5.el6.centos.11.1.$arch.rpm"
     curl $RELEASE_URL > $INSTALL_ROOT/centos-release-$release.noarch.rpm
 
     mkdir -p $INSTALL_ROOT/var/lib/rpm
